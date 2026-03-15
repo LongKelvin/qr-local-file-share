@@ -25,3 +25,7 @@ compile_log.txt
 
 # gradle distribution
 gradle-8.7/
+
+# signing keystores
+*.jks
+*.keystore
