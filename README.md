@@ -1,23 +1,28 @@
 ﻿# QLFS — QR Local File Share
 
-Share files from your Android device to any device — no cables, no cloud, no extra apps. Your phone creates its own Wi-Fi hotspot, others connect by scanning a QR code, then download files directly from your phone via a second QR code.
+Share files from your Android device to **any device nearby** — no cables, no cloud, no extra apps.
+
+QLFS creates its **own Wi-Fi hotspot**, generates **two QR codes**, and lets receivers download files directly through a browser.
+
+No installation required on the receiving device.
 
 ---
 
 ## Features
 
-- **Self-contained hotspot sharing** — app starts a local Wi-Fi AP automatically; no router required
-- **Two-step QR flow** — one QR to join the hotspot, one QR to download files
-- **No receiver app needed** — works with any browser on any device
-- **Multi-file support** — share multiple files in one session
-- **Token-secured sessions** — 16-byte random token + 15-minute TTL per session
-- **Foreground service** — server stays alive with a persistent notification
+- **Built-in Wi-Fi hotspot** — the app automatically creates a local hotspot using Android's `LocalOnlyHotspot`
+- **Two-step QR workflow** — scan QR to join hotspot, then scan QR to open download page
+- **No receiver app required** — works with any browser (Android, iOS, Windows, Linux, Mac)
+- **Offline sharing** — no internet required, works completely air-gapped
+- **Multi-file sessions** — share multiple files at once
+- **Token-secured sessions** — 16-byte random token, 15-minute TTL, prevents unauthorized downloads
+- **Foreground service** — keeps the file server alive while sharing
 - **Range request support** — browsers can resume interrupted downloads
-- **Max 5 concurrent connections** — bounded thread pool prevents abuse
-- **Offline HTML download page** — no external CDN, fully air-gapped
-- **File type detection** — badges and icons for audio, video, PDF, archive, image, text
-- **Download counter** — see how many times files were downloaded per session
-- **Permission gate** — guided onboarding screen explains each permission before requesting
+- **Max 5 concurrent connections** — protects device from overload
+- **Offline HTML download page** — no CDN or internet dependency
+- **File type detection** — icons and badges for audio, video, images, PDF, archives, text files
+- **Download counter** — shows how many times files were downloaded during the session
+- **Guided permission onboarding** — explains why permissions are needed before requesting them
 
 ---
 
@@ -25,7 +30,7 @@ Share files from your Android device to any device — no cables, no cloud, no e
 
 | Tool | Version |
 |------|---------|
-| Android Studio | Hedgehog 2023.1.1+ (or Meerkat) |
+| Android Studio | Hedgehog 2023.1.1+ |
 | JDK | 17+ |
 | Android SDK | Compile SDK 35, Min SDK 26 (Android 8.0+) |
 | Gradle | 8.7 (wrapper included) |
@@ -44,12 +49,9 @@ cd qr-local-file-share
 
 ### 2. Open in Android Studio
 
-- **File → Open** and select the cloned folder
-- Wait for Gradle sync to complete (downloads dependencies automatically)
+Open the folder and wait for **Gradle sync** to complete.
 
-### 3. Build & run
-
-Connect a physical device, then:
+### 3. Run on device
 
 ```bash
 ./gradlew installDebug
@@ -57,7 +59,7 @@ Connect a physical device, then:
 
 Or press **Run ▶** in Android Studio.
 
-> **Note:** A physical device is required. The app starts a local Wi-Fi hotspot — this does not work on emulators.
+> **A physical device is required.** Android emulators cannot create a Wi-Fi hotspot.
 
 ---
 
@@ -70,7 +72,7 @@ Or press **Run ▶** in Android Studio.
 # Release build (requires signing config)
 ./gradlew assembleRelease
 
-# Install debug directly to connected device
+# Install debug build directly to connected device
 ./gradlew installDebug
 
 # Run unit tests
@@ -83,16 +85,26 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## How It Works
 
-1. App launches → permission gate requests **Nearby Wi-Fi Devices** (API 33+) or **Location** (API ≤32) + **Notifications**
-2. User selects one or more files
-3. User taps **Start Sharing**
-4. App calls `WifiManager.startLocalOnlyHotspot()` — Android creates a dedicated Wi-Fi AP and returns SSID + password + gateway IP
-5. A NanoHTTPD file server starts on the gateway IP with a session token
-6. The sharing screen shows **two QR codes**:
-   - **Step 1 QR** — `WIFI:T:WPA2;S:<ssid>;P:<pass>;;` → camera app prompts "Join this network?"
-   - **Step 2 QR** — `http://192.168.49.1:8080/?token=<token>` → browser opens the download page
-7. Each file streams directly from the Android content resolver (never fully loaded into memory)
-8. Session expires after 15 minutes or when the user taps **Stop Sharing** (hotspot is also torn down)
+1. User selects files to share
+2. User taps **Start Sharing**
+3. App calls `WifiManager.startLocalOnlyHotspot()` — Android creates a temporary hotspot and returns the SSID, password, and gateway IP
+4. The app starts a **NanoHTTPD file server** on the gateway IP with a session token
+5. The UI displays **two QR codes**:
+
+**QR #1 — Join hotspot**
+```
+WIFI:T:WPA2;S:<ssid>;P:<password>;;
+```
+Scanning this QR connects the device to the hotspot.
+
+**QR #2 — Open download page**
+```
+http://192.168.49.1:8080/?token=<session-token>
+```
+The browser opens the styled download page.
+
+6. Receiver downloads files directly from the phone. Files stream from the Android **ContentResolver** — never fully loaded into memory.
+7. Session ends when the user presses **Stop Sharing** or 15 minutes expire. Hotspot and server shut down automatically.
 
 ---
 
@@ -142,7 +154,7 @@ app/src/main/kotlin/com/example/qlfs/
 | Dependency injection | Hilt (Dagger) 2.51 |
 | Image loading | Coil 2.6.0 |
 | Async / state | Kotlin Coroutines + StateFlow |
-| ViewModel | AndroidX Lifecycle 2.8.0 |
+| Architecture | MVVM + ViewModel (AndroidX Lifecycle 2.8.0) |
 | Testing | JUnit 4 + MockK 1.13.11 |
 
 ---
@@ -156,7 +168,7 @@ app/src/main/kotlin/com/example/qlfs/
 | `HEAD` | `/download?token=<t>&index=<n>` | Returns file headers without body |
 | `GET` | `/thumbnail?token=<t>&index=<n>` | Returns thumbnail image for file `n` |
 
-All requests require a valid session token. Invalid or expired tokens receive `403 Forbidden`.
+Invalid tokens return `403 Forbidden`.
 
 ---
 
@@ -167,7 +179,7 @@ All requests require a valid session token. Invalid or expired tokens receive `4
 | `INTERNET` | all | Run embedded HTTP server |
 | `ACCESS_WIFI_STATE` / `ACCESS_NETWORK_STATE` / `CHANGE_WIFI_STATE` | all | Start and manage Wi-Fi hotspot |
 | `NEARBY_WIFI_DEVICES` | 33+ | Start local-only hotspot without location access |
-| `ACCESS_FINE_LOCATION` | ≤32 | Required by Android to start a Wi-Fi hotspot |
+| `ACCESS_FINE_LOCATION` | ≤32 | Required by Android hotspot API |
 | `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` | all | Keep server alive in background |
 | `POST_NOTIFICATIONS` | 33+ | Show persistent sharing notification |
 | `READ_EXTERNAL_STORAGE` | ≤32 | File access on Android 12 and below |
@@ -192,7 +204,7 @@ Test coverage includes:
 ## Contributing
 
 1. Fork the repository
-2. Create a branch: `feat/your-feature` or `fix/your-fix`
+2. Create a branch: `feat/your-feature` or `fix/your-bug`
 3. Commit using [Conventional Commits](https://www.conventionalcommits.org/): `feat(scope): message`
 4. Open a pull request with the same format as the commit title
 
@@ -200,7 +212,7 @@ Test coverage includes:
 
 ## License
 
-This project is open source and freely available for personal and commercial use.
+This project is open source and free for personal or commercial use.
 
 ---
 
