@@ -45,13 +45,22 @@ class HotspotManager(private val context: Context) {
                         password = config?.preSharedKey?.trim('"') ?: ""
                     }
 
-                    // Give the tethering interface time to appear in NetworkInterface list
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        if (cont.isActive) {
-                            val ip = findHotspotIp() ?: "192.168.49.1"
+                    // Poll for the tethering interface instead of a fixed delay.
+                    // Returns as soon as the IP is visible (often <200ms), fallback at 1500ms.
+                    val handler = Handler(Looper.getMainLooper())
+                    var pollCount = 0
+                    fun poll() {
+                        if (!cont.isActive) return
+                        val ip = findHotspotIp()
+                        if (ip != null) {
                             cont.resume(HotspotInfo(ssid, password, ip))
+                        } else if (pollCount++ >= 14) { // 14 × 100ms = 1400ms max
+                            cont.resume(HotspotInfo(ssid, password, "192.168.49.1"))
+                        } else {
+                            handler.postDelayed({ poll() }, 100)
                         }
-                    }, 1500)
+                    }
+                    poll()
                 }
 
                 override fun onFailed(reason: Int) {

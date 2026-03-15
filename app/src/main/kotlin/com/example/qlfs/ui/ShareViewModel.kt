@@ -16,13 +16,19 @@ import com.example.qlfs.qr.QrGenerator
 import com.example.qlfs.service.ShareForegroundService
 import com.example.qlfs.share.ShareController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 sealed class ShareUiState {
@@ -82,33 +88,26 @@ class ShareViewModel @Inject constructor(
             _uiState.value = ShareUiState.Idle
             return
         }
-
-        val sharedFiles = mutableListOf<SharedFile>()
-        for (uri in uris) {
-            val documentFile = DocumentFile.fromSingleUri(context, uri)
-            if (documentFile != null && documentFile.exists()) {
-                val name = documentFile.name ?: "Unknown"
-                val size = documentFile.length()
-                val mimeType = documentFile.type ?: "application/octet-stream"
-                val id = java.util.UUID.randomUUID().toString()
-
-                sharedFiles.add(
+        // Run ContentResolver queries on IO thread to avoid jank on the main thread
+        viewModelScope.launch(Dispatchers.IO) {
+            val sharedFiles = uris.mapNotNull { uri ->
+                val documentFile = DocumentFile.fromSingleUri(context, uri)
+                if (documentFile != null && documentFile.exists()) {
                     SharedFile(
-                        id = id,
+                        id = java.util.UUID.randomUUID().toString(),
                         uri = uri,
-                        name = name,
-                        size = size,
-                        mimeType = mimeType,
+                        name = documentFile.name ?: "Unknown",
+                        size = documentFile.length(),
+                        mimeType = documentFile.type ?: "application/octet-stream",
                         dateModified = documentFile.lastModified()
                     )
-                )
+                } else null
             }
-        }
-
-        if (sharedFiles.isEmpty()) {
-             _uiState.value = ShareUiState.Error("Could not read selected files.")
-        } else {
-             _uiState.value = ShareUiState.FilesSelected(sharedFiles)
+            if (sharedFiles.isEmpty()) {
+                _uiState.value = ShareUiState.Error("Could not read selected files.")
+            } else {
+                _uiState.value = ShareUiState.FilesSelected(sharedFiles)
+            }
         }
     }
 
@@ -146,18 +145,22 @@ class ShareViewModel @Inject constructor(
                 app.startService(serviceIntent)
             }
 
-            delay(500) // let service bind and create session
+            // Wait for the service to signal it is running instead of a blind sleep
+            val started = withTimeoutOrNull(5000) { shareController.serviceRunning.first { it } }
+            if (started == null) return@launch // timed out
 
             val session = shareController.activeSession
-            if (session == null || !shareController.serviceRunning.value) return@launch
+            if (session == null) return@launch
 
-            // Step 3 — Build URLs and generate both QR codes
+            // Step 3 — Build URLs and generate both QR codes in parallel on CPU threads
             val downloadUrl = "http://$ip:$port/?token=${session.token}"
-            // Standard Wi-Fi QR format — Android/iOS cameras auto-prompt to join the network
             val wifiQrContent = "WIFI:T:WPA2;S:${hotspotInfo.ssid};P:${hotspotInfo.password};;"
 
-            val wifiQrBitmap = QrGenerator.generate(wifiQrContent)
-            val downloadQrBitmap = QrGenerator.generate(downloadUrl)
+            val (wifiQrBitmap, downloadQrBitmap) = coroutineScope {
+                val d1 = async(Dispatchers.Default) { QrGenerator.generate(wifiQrContent) }
+                val d2 = async(Dispatchers.Default) { QrGenerator.generate(downloadUrl) }
+                d1.await() to d2.await()
+            }
 
             _uiState.value = ShareUiState.SharingActive(
                 wifiQrBitmap = wifiQrBitmap,
@@ -179,7 +182,7 @@ class ShareViewModel @Inject constructor(
         stopService()
         _uiState.value = ShareUiState.Stopped
         viewModelScope.launch {
-            delay(1000)
+            delay(300)
             if (_uiState.value is ShareUiState.Stopped) {
                 _uiState.value = ShareUiState.Idle
             }

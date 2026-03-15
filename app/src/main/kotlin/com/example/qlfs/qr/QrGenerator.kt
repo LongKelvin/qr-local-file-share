@@ -15,12 +15,13 @@ object QrGenerator {
             EncodeHintType.CHARACTER_SET to "UTF-8"
         )
         val matrix = QRCodeWriter().encode(url, BarcodeFormat.QR_CODE, sizePx, sizePx, hints)
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        for (x in 0 until sizePx) {
-            for (y in 0 until sizePx) {
-                bitmap.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)
-            }
+        // Build the pixel array in one pass then write it in a single bulk JNI call
+        // instead of sizePx×sizePx individual setPixel() calls.
+        val pixels = IntArray(sizePx * sizePx) { i ->
+            if (matrix[i % sizePx, i / sizePx]) Color.BLACK else Color.WHITE
         }
-        return bitmap
+        return Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888).also {
+            it.setPixels(pixels, 0, sizePx, 0, 0, sizePx, sizePx)
+        }
     }
 }
