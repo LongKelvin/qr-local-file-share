@@ -1,0 +1,210 @@
+package com.example.qlfs.ui
+
+import android.app.Application
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.qlfs.model.SharedFile
+import com.example.qlfs.network.NetworkManager
+import com.example.qlfs.qr.QrGenerator
+import com.example.qlfs.service.ShareForegroundService
+import com.example.qlfs.share.ShareController
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+sealed class ShareUiState {
+    object Idle : ShareUiState()
+    data class FilesSelected(val files: List<SharedFile>) : ShareUiState()
+    object ServerStarting : ShareUiState()
+    data class SharingActive(
+        val qrBitmap: Bitmap,
+        val url: String,
+        val files: List<SharedFile>,
+        val remainingSeconds: Long,
+        val downloadCount: Int
+    ) : ShareUiState()
+    data class Error(val message: String) : ShareUiState()
+    object Stopped : ShareUiState()
+}
+
+@HiltViewModel
+class ShareViewModel @Inject constructor(
+    private val app: Application,
+    private val shareController: ShareController,
+    private val networkManager: NetworkManager
+) : AndroidViewModel(app) {
+
+    private val _uiState = MutableStateFlow<ShareUiState>(ShareUiState.Idle)
+    val uiState: StateFlow<ShareUiState> = _uiState.asStateFlow()
+
+    private var countdownJob: Job? = null
+    
+    init {
+        viewModelScope.launch {
+            shareController.downloadCount.collect { count ->
+                val currentState = _uiState.value
+                if (currentState is ShareUiState.SharingActive) {
+                    _uiState.value = currentState.copy(downloadCount = count)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            shareController.serverError.collect { error ->
+                if (error != null) {
+                    _uiState.value = ShareUiState.Error(error)
+                    stopService()
+                }
+            }
+        }
+    }
+
+    fun onFilesSelectedFromPicker(uris: List<Uri>, context: Context) {
+        if (uris.isEmpty()) {
+            _uiState.value = ShareUiState.Idle
+            return
+        }
+
+        val sharedFiles = mutableListOf<SharedFile>()
+        for (uri in uris) {
+            val documentFile = DocumentFile.fromSingleUri(context, uri)
+            if (documentFile != null && documentFile.exists()) {
+                val name = documentFile.name ?: "Unknown"
+                val size = documentFile.length()
+                val mimeType = documentFile.type ?: "application/octet-stream"
+                val id = java.util.UUID.randomUUID().toString()
+
+                sharedFiles.add(
+                    SharedFile(
+                        id = id,
+                        uri = uri,
+                        name = name,
+                        size = size,
+                        mimeType = mimeType,
+                        dateModified = documentFile.lastModified()
+                    )
+                )
+            }
+        }
+
+        if (sharedFiles.isEmpty()) {
+             _uiState.value = ShareUiState.Error("Could not read selected files.")
+        } else {
+             _uiState.value = ShareUiState.FilesSelected(sharedFiles)
+        }
+    }
+
+    fun onStartSharing() {
+        val currentState = _uiState.value
+        if (currentState !is ShareUiState.FilesSelected) return
+        
+        _uiState.value = ShareUiState.ServerStarting
+        
+        val ip = networkManager.getLocalIpAddress()
+        if (ip == null) {
+            _uiState.value = ShareUiState.Error("No network interface found. Connect to Wi-Fi or enable Hotspot.")
+            return
+        }
+
+        val port = 8080
+        val serviceIntent = Intent(app, ShareForegroundService::class.java).apply {
+            val listToPass = java.util.ArrayList(currentState.files)
+            putParcelableArrayListExtra(ShareForegroundService.EXTRA_FILES, listToPass)
+            putExtra(ShareForegroundService.EXTRA_PORT, port)
+        }
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            app.startForegroundService(serviceIntent)
+        } else {
+            app.startService(serviceIntent)
+        }
+
+        viewModelScope.launch {
+            delay(500) // Small buffer let service start and setup session
+            
+            val session = shareController.activeSession
+            if (session == null || !shareController.serviceRunning.value) {
+                // Ignore if it was an error setup
+                return@launch
+            }
+
+            val url = "http://$ip:$port/?token=${session.token}"
+            val qrBitmap = QrGenerator.generate(url)
+            
+            _uiState.value = ShareUiState.SharingActive(
+                qrBitmap = qrBitmap,
+                url = url,
+                files = currentState.files,
+                remainingSeconds = session.remainingSeconds(),
+                downloadCount = 0
+            )
+
+            startCountdown()
+        }
+    }
+
+    fun onStopSharing() {
+        stopService()
+        _uiState.value = ShareUiState.Stopped
+        viewModelScope.launch {
+            delay(1000)
+            if (_uiState.value is ShareUiState.Stopped) {
+                _uiState.value = ShareUiState.Idle
+            }
+        }
+    }
+
+    fun dismissError() {
+         _uiState.value = ShareUiState.Idle
+    }
+
+    private fun stopService() {
+        countdownJob?.cancel()
+        countdownJob = null
+        val serviceIntent = Intent(app, ShareForegroundService::class.java).apply {
+            action = ShareForegroundService.ACTION_STOP
+        }
+        app.startService(serviceIntent)
+        shareController.reset()
+    }
+
+    private fun startCountdown() {
+        countdownJob?.cancel()
+        countdownJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000)
+                val currentState = _uiState.value
+                val session = shareController.activeSession
+                if (currentState is ShareUiState.SharingActive && session != null) {
+                    val remaining = session.remainingSeconds()
+                    if (remaining <= 0) {
+                        onStopSharing()
+                        break
+                    }
+                    _uiState.value = currentState.copy(remainingSeconds = remaining)
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+
+
+    override fun onCleared() {
+        super.onCleared()
+        countdownJob?.cancel()
+    }
+}
