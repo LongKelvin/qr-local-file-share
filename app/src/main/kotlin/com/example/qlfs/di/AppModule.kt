@@ -1,6 +1,7 @@
 package com.example.qlfs.di
 
 import android.content.Context
+import com.example.qlfs.network.HotspotManager
 import com.example.qlfs.network.NetworkManager
 import dagger.Module
 import dagger.Provides
@@ -16,5 +17,11 @@ object AppModule {
     @Singleton
     fun provideNetworkManager(@ApplicationContext context: Context): NetworkManager {
         return NetworkManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideHotspotManager(@ApplicationContext context: Context): HotspotManager {
+        return HotspotManager(context)
     }
 }
