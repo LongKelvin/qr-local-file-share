@@ -1,4 +1,4 @@
-package com.example.qlfs.ui
+﻿package com.example.qlfs.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -8,26 +8,38 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.qlfs.util.FileSizeFormatter
+import kotlinx.coroutines.delay
 
 @Composable
 fun SharingActiveScreen(
     state: ShareUiState.SharingActive,
     onStopSharing: () -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var copiedUrl by remember { mutableStateOf(false) }
+    var copiedPassword by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copiedUrl) { if (copiedUrl) { delay(2000); copiedUrl = false } }
+    LaunchedEffect(copiedPassword) { if (copiedPassword) { delay(2000); copiedPassword = false } }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -50,70 +62,105 @@ fun SharingActiveScreen(
         val minutes = state.remainingSeconds / 60
         val seconds = state.remainingSeconds % 60
         Text(
-            text = "Session expires in ${String.format("%02d:%02d", minutes, seconds)}  ·  ${state.downloadCount} download(s)",
+            text = "Expires in ${String.format("%02d:%02d", minutes, seconds)}  ·  ${state.downloadCount} download(s)",
             fontSize = 13.sp,
             color = Color(0xFF6B7280)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Step 1: Connect to hotspot ────────────────────────────────────────
-        StepCard(
-            stepNumber = "1",
-            stepLabel = "Connect to Hotspot",
-            stepColor = Color(0xFF1A73E8)
-        ) {
+        // ── Step 1: Join hotspot ──────────────────────────────────────────────
+        StepCard(stepNumber = "1", stepLabel = "Join Hotspot", stepColor = Color(0xFF1A73E8)) {
             Image(
                 bitmap = state.wifiQrBitmap.asImageBitmap(),
-                contentDescription = "Wi-Fi QR code for network ${state.wifiSsid}",
+                contentDescription = "Wi-Fi QR code for ${state.ssid}",
                 modifier = Modifier
                     .size(220.dp)
                     .align(Alignment.CenterHorizontally)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // SSID row
+            InfoRow(
+                icon = Icons.Filled.Wifi,
+                iconTint = Color(0xFF1A73E8),
+                label = "Network",
+                value = state.ssid
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Password row with copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Wifi,
+                    imageVector = Icons.Filled.Lock,
                     contentDescription = null,
-                    tint = Color(0xFF1A73E8),
-                    modifier = Modifier.size(18.dp)
+                    tint = Color(0xFF6B7280),
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = state.wifiSsid,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = Color(0xFF111827)
+                    text = "Password",
+                    fontSize = 12.sp,
+                    color = Color(0xFF6B7280),
+                    modifier = Modifier.width(64.dp)
                 )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = state.password,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF111827)
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(state.password))
+                        copiedPassword = true
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Copy password",
+                        tint = if (copiedPassword) Color(0xFF059669) else Color(0xFF9CA3AF),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            if (copiedPassword) {
+                Text("Password copied!", fontSize = 11.sp, color = Color(0xFF059669))
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Scan with your camera app — it will ask to join this phone's Wi-Fi hotspot. Tap Yes.",
+                text = "Scan with camera app — or open Wi-Fi settings and enter the password above.",
                 fontSize = 12.sp,
                 color = Color(0xFF6B7280),
                 lineHeight = 17.sp
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // ── Step 2: Scan to download ──────────────────────────────────────────
-        StepCard(
-            stepNumber = "2",
-            stepLabel = "Scan to Download",
-            stepColor = Color(0xFF059669)
-        ) {
+        // ── Step 2: Open download page ────────────────────────────────────────
+        StepCard(stepNumber = "2", stepLabel = "Open Download Page", stepColor = Color(0xFF059669)) {
             Image(
                 bitmap = state.downloadQrBitmap.asImageBitmap(),
-                contentDescription = "Download QR code. URL: ${state.url}",
+                contentDescription = "Download QR code",
                 modifier = Modifier
                     .size(220.dp)
                     .align(Alignment.CenterHorizontally)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // URL row with copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -122,28 +169,53 @@ fun SharingActiveScreen(
                     imageVector = Icons.Filled.Download,
                     contentDescription = null,
                     tint = Color(0xFF059669),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                SelectionContainer {
+                Text(
+                    text = "URL",
+                    fontSize = 12.sp,
+                    color = Color(0xFF6B7280),
+                    modifier = Modifier.width(64.dp)
+                )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = state.url,
+                        text = state.downloadUrl,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = Color(0xFF374151)
+                        color = Color(0xFF374151),
+                        maxLines = 2
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(state.downloadUrl))
+                        copiedUrl = true
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Copy URL",
+                        tint = if (copiedUrl) Color(0xFF059669) else Color(0xFF9CA3AF),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            if (copiedUrl) {
+                Text("URL copied!", fontSize = 11.sp, color = Color(0xFF059669))
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Once connected to the hotspot, scan this QR with any browser QR scanner or camera.",
+                text = "Once connected to the hotspot, scan this QR or type the URL in any browser.",
                 fontSize = 12.sp,
                 color = Color(0xFF6B7280),
                 lineHeight = 17.sp
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── Files list ────────────────────────────────────────────────────────
         Card(
@@ -168,9 +240,7 @@ fun SharingActiveScreen(
                     ) {
                         Text(
                             text = file.name,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 8.dp),
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             fontWeight = FontWeight.Medium,
@@ -192,14 +262,27 @@ fun SharingActiveScreen(
         OutlinedButton(
             onClick = onStopSharing,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
+            modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text("Stop Sharing", fontSize = 16.sp)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun InfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    label: String,
+    value: String
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(text = label, fontSize = 12.sp, color = Color(0xFF6B7280), modifier = Modifier.width(64.dp))
+        Text(text = value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF111827))
     }
 }
 
@@ -243,4 +326,3 @@ private fun StepCard(
         }
     }
 }
-

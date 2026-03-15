@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.qlfs.MainActivity
 import com.example.qlfs.model.SharedFile
+import com.example.qlfs.server.CaptivePortalServer
 import com.example.qlfs.server.FileServer
 import com.example.qlfs.share.SessionManager
 import com.example.qlfs.share.ShareController
@@ -29,6 +30,7 @@ class ShareForegroundService : Service() {
     @Inject lateinit var hotspotManager: HotspotManager
 
     private var fileServer: FileServer? = null
+    private var captivePortalServer: CaptivePortalServer? = null
 
     companion object {
         const val NOTIFICATION_ID = 1
@@ -37,6 +39,7 @@ class ShareForegroundService : Service() {
         
         const val EXTRA_FILES = "extra_files"
         const val EXTRA_PORT = "extra_port"
+        const val EXTRA_GATEWAY_IP = "extra_gateway_ip"
     }
 
     override fun onCreate() {
@@ -62,6 +65,7 @@ class ShareForegroundService : Service() {
             return START_NOT_STICKY
         }
         var port = intent?.getIntExtra(EXTRA_PORT, 8080) ?: 8080
+        val gatewayIp = intent?.getStringExtra(EXTRA_GATEWAY_IP) ?: "192.168.49.1"
 
         val title = if (files.size == 1) files.first().name else "${files.size} files"
         startForeground(NOTIFICATION_ID, buildNotification(title))
@@ -77,6 +81,7 @@ class ShareForegroundService : Service() {
                 try {
                     fileServer = FileServer(
                         port = port,
+                        gatewayIp = gatewayIp,
                         files = files,
                         contentResolver = contentResolver,
                         session = session,
@@ -95,7 +100,13 @@ class ShareForegroundService : Service() {
             if (!bound) {
                 throw Exception("Failed to bind to any port")
             }
-            
+
+            // Best-effort captive portal server on port 80.
+            // On rooted or permissive-kernel devices this triggers the OS captive-portal
+            // browser automatically when the client joins the hotspot.
+            captivePortalServer = CaptivePortalServer("http://$gatewayIp:$port/?token=${session.token}")
+            captivePortalServer?.startIfPossible()
+
             shareController.setServiceRunning(true)
 
         } catch (e: Exception) {
@@ -109,6 +120,8 @@ class ShareForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        captivePortalServer?.stop()
+        captivePortalServer = null
         fileServer?.stop()
         fileServer = null
         hotspotManager.stopHotspot()

@@ -19,13 +19,35 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class FileServer(
     port: Int,
+    private val gatewayIp: String,
     private val files: List<SharedFile>,
     private val contentResolver: ContentResolver,
     private val session: SessionManager,
     private val onTransferEvent: (TransferEvent) -> Unit
 ) : NanoHTTPD(port) {
 
+    // Store the bound port for use in redirect URLs
+    private val bindPort = port
+
     private val activeConnections = AtomicInteger(0)
+
+    companion object {
+        // Probe paths that OS-level captive portal detectors send to the gateway.
+        // Returning a redirect (instead of 204/expected body) triggers auto-browser
+        // on devices that probe port 8080 of the AP gateway.
+        private val CAPTIVE_PROBE_PATHS = setOf(
+            "/generate_204",
+            "/gen_204",
+            "/hotspot-detect.html",
+            "/library/test/success.html",
+            "/connecttest.txt",
+            "/ncsi.txt",
+            "/redirect",
+            "/mobile/status.php",
+            "/success.txt",
+            "/canonical.html",
+        )
+    }
 
     init {
         val executor = Executors.newFixedThreadPool(5)
@@ -51,6 +73,15 @@ class FileServer(
         val method = httpSession.method
         val uri = httpSession.uri
         val params = httpSession.parameters
+
+        // Intercept captive-portal probes — redirect to download page.
+        // Works on devices that probe the AP gateway on arbitrary ports.
+        if (method == Method.GET && uri in CAPTIVE_PROBE_PATHS) {
+            return newFixedLengthResponse(Response.Status.REDIRECT, MIME_HTML, "").apply {
+                addHeader("Location", "http://$gatewayIp:$bindPort/?token=${session.token}")
+                addHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+            }
+        }
 
         if (activeConnections.get() >= 5) {
             return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, MIME_PLAINTEXT, "Service Unavailable")
