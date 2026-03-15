@@ -1,6 +1,5 @@
 ﻿package com.example.qlfs.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,14 +34,11 @@ fun SharingActiveScreen(
     onStopSharing: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
-    var copied by remember { mutableStateOf(false) }
+    var copiedUrl by remember { mutableStateOf(false) }
+    var copiedPassword by remember { mutableStateOf(false) }
 
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(2000)
-            copied = false
-        }
-    }
+    LaunchedEffect(copiedUrl) { if (copiedUrl) { delay(2000); copiedUrl = false } }
+    LaunchedEffect(copiedPassword) { if (copiedPassword) { delay(2000); copiedPassword = false } }
 
     Column(
         modifier = Modifier
@@ -72,41 +69,77 @@ fun SharingActiveScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Step 1: Connect to hotspot ────────────────────────────────────────
-        StepCard(
-            stepNumber = "1",
-            stepLabel = "Scan to Connect",
-            stepColor = Color(0xFF1A73E8)
-        ) {
+        // ── Step 1: Join hotspot ──────────────────────────────────────────────
+        StepCard(stepNumber = "1", stepLabel = "Join Hotspot", stepColor = Color(0xFF1A73E8)) {
             Image(
                 bitmap = state.wifiQrBitmap.asImageBitmap(),
-                contentDescription = "Wi-Fi QR code for network ${state.wifiSsid}",
+                contentDescription = "Wi-Fi QR code for ${state.ssid}",
                 modifier = Modifier
                     .size(220.dp)
                     .align(Alignment.CenterHorizontally)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // SSID row
+            InfoRow(
+                icon = Icons.Filled.Wifi,
+                iconTint = Color(0xFF1A73E8),
+                label = "Network",
+                value = state.ssid
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Password row with copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Wifi,
+                    imageVector = Icons.Filled.Lock,
                     contentDescription = null,
-                    tint = Color(0xFF1A73E8),
-                    modifier = Modifier.size(18.dp)
+                    tint = Color(0xFF6B7280),
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = state.wifiSsid,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    color = Color(0xFF111827)
+                    text = "Password",
+                    fontSize = 12.sp,
+                    color = Color(0xFF6B7280),
+                    modifier = Modifier.width(64.dp)
                 )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = state.password,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF111827)
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(state.password))
+                        copiedPassword = true
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = "Copy password",
+                        tint = if (copiedPassword) Color(0xFF059669) else Color(0xFF9CA3AF),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            if (copiedPassword) {
+                Text("Password copied!", fontSize = 11.sp, color = Color(0xFF059669))
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Scan with your camera app — tap the prompt to join this hotspot.",
+                text = "Scan with camera app — or open Wi-Fi settings and enter the password above.",
                 fontSize = 12.sp,
                 color = Color(0xFF6B7280),
                 lineHeight = 17.sp
@@ -116,11 +149,7 @@ fun SharingActiveScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // ── Step 2: Open download page ────────────────────────────────────────
-        StepCard(
-            stepNumber = "2",
-            stepLabel = "Open Download Page",
-            stepColor = Color(0xFF059669)
-        ) {
+        StepCard(stepNumber = "2", stepLabel = "Open Download Page", stepColor = Color(0xFF059669)) {
             Image(
                 bitmap = state.downloadQrBitmap.asImageBitmap(),
                 contentDescription = "Download QR code",
@@ -128,7 +157,10 @@ fun SharingActiveScreen(
                     .size(220.dp)
                     .align(Alignment.CenterHorizontally)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // URL row with copy button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -137,28 +169,18 @@ fun SharingActiveScreen(
                     imageVector = Icons.Filled.Download,
                     contentDescription = null,
                     tint = Color(0xFF059669),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "After joining the hotspot, scan this QR or open URL in browser",
+                    text = "URL",
                     fontSize = 12.sp,
                     color = Color(0xFF6B7280),
-                    lineHeight = 17.sp
+                    modifier = Modifier.width(64.dp)
                 )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            // URL row with copy button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
-                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
                 SelectionContainer(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = state.url,
+                        text = state.downloadUrl,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         color = Color(0xFF374151),
@@ -167,27 +189,30 @@ fun SharingActiveScreen(
                 }
                 IconButton(
                     onClick = {
-                        clipboardManager.setText(AnnotatedString(state.url))
-                        copied = true
+                        clipboardManager.setText(AnnotatedString(state.downloadUrl))
+                        copiedUrl = true
                     },
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Filled.ContentCopy,
-                        contentDescription = if (copied) "Copied" else "Copy URL",
-                        tint = if (copied) Color(0xFF059669) else Color(0xFF6B7280),
-                        modifier = Modifier.size(18.dp)
+                        contentDescription = "Copy URL",
+                        tint = if (copiedUrl) Color(0xFF059669) else Color(0xFF9CA3AF),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
-            if (copied) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Copied to clipboard!",
-                    fontSize = 11.sp,
-                    color = Color(0xFF059669)
-                )
+            if (copiedUrl) {
+                Text("URL copied!", fontSize = 11.sp, color = Color(0xFF059669))
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Once connected to the hotspot, scan this QR or type the URL in any browser.",
+                fontSize = 12.sp,
+                color = Color(0xFF6B7280),
+                lineHeight = 17.sp
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -215,9 +240,7 @@ fun SharingActiveScreen(
                     ) {
                         Text(
                             text = file.name,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 8.dp),
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             fontWeight = FontWeight.Medium,
@@ -239,14 +262,27 @@ fun SharingActiveScreen(
         OutlinedButton(
             onClick = onStopSharing,
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
+            modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text("Stop Sharing", fontSize = 16.sp)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun InfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    label: String,
+    value: String
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(text = label, fontSize = 12.sp, color = Color(0xFF6B7280), modifier = Modifier.width(64.dp))
+        Text(text = value, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF111827))
     }
 }
 

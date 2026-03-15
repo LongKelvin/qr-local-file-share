@@ -32,11 +32,13 @@ sealed class ShareUiState {
     data class SharingActive(
         val wifiQrBitmap: Bitmap,
         val downloadQrBitmap: Bitmap,
-        val wifiSsid: String,
-        val url: String,
+        val ssid: String,
+        val password: String,
+        val downloadUrl: String,
         val files: List<SharedFile>,
         val remainingSeconds: Long,
-        val downloadCount: Int
+        val downloadCount: Int,
+        val captivePortalAttempted: Boolean = false
     ) : ShareUiState()
     data class Error(val message: String) : ShareUiState()
     object Stopped : ShareUiState()
@@ -160,11 +162,13 @@ class ShareViewModel @Inject constructor(
             _uiState.value = ShareUiState.SharingActive(
                 wifiQrBitmap = wifiQrBitmap,
                 downloadQrBitmap = downloadQrBitmap,
-                wifiSsid = hotspotInfo.ssid,
-                url = downloadUrl,
+                ssid = hotspotInfo.ssid,
+                password = hotspotInfo.password,
+                downloadUrl = downloadUrl,
                 files = currentState.files,
                 remainingSeconds = session.remainingSeconds(),
-                downloadCount = 0
+                downloadCount = 0,
+                captivePortalAttempted = false
             )
 
             startCountdown()
