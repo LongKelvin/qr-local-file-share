@@ -9,8 +9,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -65,14 +65,14 @@ fun SharingActiveScreen(
         val minutes = state.remainingSeconds / 60
         val seconds = state.remainingSeconds % 60
         Text(
-            text = "Session expires in ${String.format("%02d:%02d", minutes, seconds)}  Â·  ${state.downloadCount} download(s)",
+            text = "Expires in ${String.format("%02d:%02d", minutes, seconds)}  ·  ${state.downloadCount} download(s)",
             fontSize = 13.sp,
             color = Color(0xFF6B7280)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // â”€â”€ Step 1: Scan Wi-Fi QR â€” browser opens automatically â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Step 1: Connect to hotspot ────────────────────────────────────────
         StepCard(
             stepNumber = "1",
             stepLabel = "Scan to Connect",
@@ -104,97 +104,95 @@ fun SharingActiveScreen(
                     color = Color(0xFF111827)
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Scan with your camera app â€” it will ask to join this hotspot.",
+                text = "Scan with your camera app — tap the prompt to join this hotspot.",
                 fontSize = 12.sp,
                 color = Color(0xFF6B7280),
                 lineHeight = 17.sp
             )
+        }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = Color(0xFFE5E7EB))
-            Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-            // Auto-open indicator
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        // ── Step 2: Open download page ────────────────────────────────────────
+        StepCard(
+            stepNumber = "2",
+            stepLabel = "Open Download Page",
+            stepColor = Color(0xFF059669)
+        ) {
+            Image(
+                bitmap = state.downloadQrBitmap.asImageBitmap(),
+                contentDescription = "Download QR code",
+                modifier = Modifier
+                    .size(220.dp)
+                    .align(Alignment.CenterHorizontally)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
-                    imageVector = Icons.Filled.CheckCircle,
+                    imageVector = Icons.Filled.Download,
                     contentDescription = null,
                     tint = Color(0xFF059669),
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Download page opens automatically after joining",
+                    text = "After joining the hotspot, scan this QR or open URL in browser",
                     fontSize = 12.sp,
-                    color = Color(0xFF059669),
-                    fontWeight = FontWeight.Medium
+                    color = Color(0xFF6B7280),
+                    lineHeight = 17.sp
                 )
             }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // â”€â”€ Fallback URL card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFFE5E7EB))
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Text(
-                    text = "If browser didn't open automatically:",
-                    fontSize = 12.sp,
-                    color = Color(0xFF6B7280)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White, RoundedCornerShape(8.dp))
-                        .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SelectionContainer(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = state.url,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = Color(0xFF374151),
-                            maxLines = 2
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(state.url))
-                            copied = true
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ContentCopy,
-                            contentDescription = if (copied) "Copied" else "Copy URL",
-                            tint = if (copied) Color(0xFF059669) else Color(0xFF6B7280),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                if (copied) {
-                    Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            // URL row with copy button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
+                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SelectionContainer(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Copied to clipboard!",
+                        text = state.url,
+                        fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
-                        color = Color(0xFF059669)
+                        color = Color(0xFF374151),
+                        maxLines = 2
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(state.url))
+                        copied = true
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ContentCopy,
+                        contentDescription = if (copied) "Copied" else "Copy URL",
+                        tint = if (copied) Color(0xFF059669) else Color(0xFF6B7280),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
+            if (copied) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Copied to clipboard!",
+                    fontSize = 11.sp,
+                    color = Color(0xFF059669)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // â”€â”€ Files list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Files list ────────────────────────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = Color.White),

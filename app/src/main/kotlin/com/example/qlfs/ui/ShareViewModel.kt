@@ -31,6 +31,7 @@ sealed class ShareUiState {
     object ServerStarting : ShareUiState()
     data class SharingActive(
         val wifiQrBitmap: Bitmap,
+        val downloadQrBitmap: Bitmap,
         val wifiSsid: String,
         val url: String,
         val files: List<SharedFile>,
@@ -154,9 +155,11 @@ class ShareViewModel @Inject constructor(
             val wifiQrContent = "WIFI:T:WPA2;S:${hotspotInfo.ssid};P:${hotspotInfo.password};;"
 
             val wifiQrBitmap = QrGenerator.generate(wifiQrContent)
+            val downloadQrBitmap = QrGenerator.generate(downloadUrl)
 
             _uiState.value = ShareUiState.SharingActive(
                 wifiQrBitmap = wifiQrBitmap,
+                downloadQrBitmap = downloadQrBitmap,
                 wifiSsid = hotspotInfo.ssid,
                 url = downloadUrl,
                 files = currentState.files,
