@@ -30,7 +30,6 @@ sealed class ShareUiState {
     data class FilesSelected(val files: List<SharedFile>) : ShareUiState()
     object ServerStarting : ShareUiState()
     data class SharingActive(
-        val downloadQrBitmap: Bitmap,
         val wifiQrBitmap: Bitmap,
         val wifiSsid: String,
         val url: String,
@@ -136,6 +135,7 @@ class ShareViewModel @Inject constructor(
                 val listToPass = java.util.ArrayList(currentState.files)
                 putParcelableArrayListExtra(ShareForegroundService.EXTRA_FILES, listToPass)
                 putExtra(ShareForegroundService.EXTRA_PORT, port)
+                putExtra(ShareForegroundService.EXTRA_GATEWAY_IP, ip)
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 app.startForegroundService(serviceIntent)
@@ -153,11 +153,9 @@ class ShareViewModel @Inject constructor(
             // Standard Wi-Fi QR format — Android/iOS cameras auto-prompt to join the network
             val wifiQrContent = "WIFI:T:WPA2;S:${hotspotInfo.ssid};P:${hotspotInfo.password};;"
 
-            val downloadQrBitmap = QrGenerator.generate(downloadUrl)
             val wifiQrBitmap = QrGenerator.generate(wifiQrContent)
 
             _uiState.value = ShareUiState.SharingActive(
-                downloadQrBitmap = downloadQrBitmap,
                 wifiQrBitmap = wifiQrBitmap,
                 wifiSsid = hotspotInfo.ssid,
                 url = downloadUrl,
