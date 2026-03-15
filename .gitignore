@@ -1,0 +1,27 @@
+# gradle
+.gradle/
+
+# build
+build/
+
+# local config
+local.properties
+
+# android studio
+.idea/
+*.iml
+
+# captures
+captures/
+
+# markdown
+*.md
+
+# build logs
+build_log*.txt
+build_out*.txt
+build_output.txt
+compile_log.txt
+
+# gradle distribution
+gradle-8.7/
