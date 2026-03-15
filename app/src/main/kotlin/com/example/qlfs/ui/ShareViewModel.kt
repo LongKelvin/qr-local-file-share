@@ -10,6 +10,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.qlfs.model.SharedFile
+import com.example.qlfs.network.HotspotManager
 import com.example.qlfs.network.NetworkManager
 import com.example.qlfs.qr.QrGenerator
 import com.example.qlfs.service.ShareForegroundService
@@ -29,7 +30,9 @@ sealed class ShareUiState {
     data class FilesSelected(val files: List<SharedFile>) : ShareUiState()
     object ServerStarting : ShareUiState()
     data class SharingActive(
-        val qrBitmap: Bitmap,
+        val downloadQrBitmap: Bitmap,
+        val wifiQrBitmap: Bitmap,
+        val wifiSsid: String,
         val url: String,
         val files: List<SharedFile>,
         val remainingSeconds: Long,
@@ -43,7 +46,8 @@ sealed class ShareUiState {
 class ShareViewModel @Inject constructor(
     private val app: Application,
     private val shareController: ShareController,
-    private val networkManager: NetworkManager
+    private val networkManager: NetworkManager,
+    private val hotspotManager: HotspotManager
 ) : AndroidViewModel(app) {
 
     private val _uiState = MutableStateFlow<ShareUiState>(ShareUiState.Idle)
@@ -111,41 +115,52 @@ class ShareViewModel @Inject constructor(
         if (currentState !is ShareUiState.FilesSelected) return
         
         _uiState.value = ShareUiState.ServerStarting
-        
-        val ip = networkManager.getLocalIpAddress()
-        if (ip == null) {
-            _uiState.value = ShareUiState.Error("No network interface found. Connect to Wi-Fi or enable Hotspot.")
-            return
-        }
-
-        val port = 8080
-        val serviceIntent = Intent(app, ShareForegroundService::class.java).apply {
-            val listToPass = java.util.ArrayList(currentState.files)
-            putParcelableArrayListExtra(ShareForegroundService.EXTRA_FILES, listToPass)
-            putExtra(ShareForegroundService.EXTRA_PORT, port)
-        }
-        
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            app.startForegroundService(serviceIntent)
-        } else {
-            app.startService(serviceIntent)
-        }
 
         viewModelScope.launch {
-            delay(500) // Small buffer let service start and setup session
-            
-            val session = shareController.activeSession
-            if (session == null || !shareController.serviceRunning.value) {
-                // Ignore if it was an error setup
+            // Step 1 — Start local-only hotspot → get SSID, password, and AP gateway IP
+            val hotspotInfo = try {
+                hotspotManager.startHotspot()
+            } catch (e: Exception) {
+                _uiState.value = ShareUiState.Error(
+                    "Could not start hotspot: ${e.message}\n\n" +
+                    "Make sure the required permission is granted and no other app is using the hotspot."
+                )
                 return@launch
             }
 
-            val url = "http://$ip:$port/?token=${session.token}"
-            val qrBitmap = QrGenerator.generate(url)
-            
+            val ip = hotspotInfo.ip
+            val port = 8080
+
+            // Step 2 — Start the file-serving foreground service
+            val serviceIntent = Intent(app, ShareForegroundService::class.java).apply {
+                val listToPass = java.util.ArrayList(currentState.files)
+                putParcelableArrayListExtra(ShareForegroundService.EXTRA_FILES, listToPass)
+                putExtra(ShareForegroundService.EXTRA_PORT, port)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                app.startForegroundService(serviceIntent)
+            } else {
+                app.startService(serviceIntent)
+            }
+
+            delay(500) // let service bind and create session
+
+            val session = shareController.activeSession
+            if (session == null || !shareController.serviceRunning.value) return@launch
+
+            // Step 3 — Build URLs and generate both QR codes
+            val downloadUrl = "http://$ip:$port/?token=${session.token}"
+            // Standard Wi-Fi QR format — Android/iOS cameras auto-prompt to join the network
+            val wifiQrContent = "WIFI:T:WPA2;S:${hotspotInfo.ssid};P:${hotspotInfo.password};;"
+
+            val downloadQrBitmap = QrGenerator.generate(downloadUrl)
+            val wifiQrBitmap = QrGenerator.generate(wifiQrContent)
+
             _uiState.value = ShareUiState.SharingActive(
-                qrBitmap = qrBitmap,
-                url = url,
+                downloadQrBitmap = downloadQrBitmap,
+                wifiQrBitmap = wifiQrBitmap,
+                wifiSsid = hotspotInfo.ssid,
+                url = downloadUrl,
                 files = currentState.files,
                 remainingSeconds = session.remainingSeconds(),
                 downloadCount = 0
@@ -173,6 +188,7 @@ class ShareViewModel @Inject constructor(
     private fun stopService() {
         countdownJob?.cancel()
         countdownJob = null
+        hotspotManager.stopHotspot()
         val serviceIntent = Intent(app, ShareForegroundService::class.java).apply {
             action = ShareForegroundService.ACTION_STOP
         }

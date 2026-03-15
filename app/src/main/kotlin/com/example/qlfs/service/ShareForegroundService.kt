@@ -20,11 +20,13 @@ import com.example.qlfs.share.ShareController
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import com.example.qlfs.BuildConfig
+import com.example.qlfs.network.HotspotManager
 
 @AndroidEntryPoint
 class ShareForegroundService : Service() {
 
     @Inject lateinit var shareController: ShareController
+    @Inject lateinit var hotspotManager: HotspotManager
 
     private var fileServer: FileServer? = null
 
@@ -109,6 +111,7 @@ class ShareForegroundService : Service() {
         super.onDestroy()
         fileServer?.stop()
         fileServer = null
+        hotspotManager.stopHotspot()
         shareController.setServiceRunning(false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
